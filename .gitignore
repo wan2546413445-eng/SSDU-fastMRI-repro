@@ -35,3 +35,4 @@ debug_vis/
 recon_results/
 
 .DS_Store
+*.mat
