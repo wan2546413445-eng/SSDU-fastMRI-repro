@@ -24,6 +24,7 @@ def build_args():
 
     # Required sanity defaults while keeping existing parser fields.
     args.data_dir = args.data_path
+    args.data_opt = 'HFS_KNEE'
     args.batchSize = args.batch_size
     args.CG_Iter = args.cg_iter
     if args.epochs == parser.get_default('epochs'):
@@ -122,7 +123,7 @@ def main():
                                                test_mask[np.newaxis], test_mask[np.newaxis], sens_maps[0][np.newaxis]),
                              batch_size=args.batchSize, shuffle=False, num_workers=0)
 
-    best_checkpoint = torch.load(os.path.join(args.output_dir, 'best.pth'), map_location=device)
+    best_checkpoint = torch.load(os.path.join(args.output_dir, 'best.pth'), map_location=device, weights_only=False)
     model.load_state_dict(best_checkpoint['model_state'])
     zs_ssl_recon = utils.real2complex(test(test_loader, model, device).to('cpu').numpy())
 
