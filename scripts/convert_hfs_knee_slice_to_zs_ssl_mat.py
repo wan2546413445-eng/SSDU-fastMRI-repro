@@ -1,180 +1,101 @@
-import os
-import glob
+import argparse
+from pathlib import Path
+
 import h5py
 import numpy as np
 import scipy.io as sio
 
 
-KSPACE_DIR = "/mnt/SSD/wsy/fastmri_data/knee/multicoil_test/kspace"
-MAPS_DIR = "/mnt/SSD/wsy/fastmri_data/knee/multicoil_test//maps"
-
-OUT_MAT = "/mnt/SSD/wsy/projects/SSDU-main/data_hfs_knee_slice.mat"
-
-VOLUME_INDEX = 0
-SLICE_INDEX = 10
-
-ACC = 4
-ACS = 24
-
-
-def list_h5_keys(path):
-    with h5py.File(path, "r") as f:
-        return list(f.keys())
-
-
-def pick_key(keys, prefer):
-    for p in prefer:
-        for k in keys:
-            if p.lower() in k.lower():
-                return k
-    if len(keys) == 1:
-        return keys[0]
-    raise RuntimeError(f"Cannot infer key from keys={keys}")
-
-
-def to_complex(arr):
-    arr = np.asarray(arr)
-
-    # Already complex
-    if np.iscomplexobj(arr):
-        return arr.astype(np.complex64)
-
-    # Real-imag last channel
-    if arr.shape[-1] == 2:
-        return (arr[..., 0] + 1j * arr[..., 1]).astype(np.complex64)
-
-    # Real-imag first channel, uncommon
-    if arr.shape[0] == 2:
-        return (arr[0] + 1j * arr[1]).astype(np.complex64)
-
-    raise RuntimeError(f"Cannot convert to complex. shape={arr.shape}, dtype={arr.dtype}")
-
-
-def infer_slice_coil_hw_to_hwcoil(x):
-    """
-    Convert one selected slice to [H, W, C].
-
-    Possible input examples:
-      full kspace: [slice, coil, H, W]
-      full kspace: [slice, H, W, coil]
-      one slice:   [coil, H, W]
-      one slice:   [H, W, coil]
-    """
-    x = np.asarray(x)
-
-    if x.ndim == 4:
-        # [slice, coil, H, W]
-        if x.shape[1] < 64 and x.shape[2] >= 128 and x.shape[3] >= 128:
-            x = x[SLICE_INDEX]
-            x = np.transpose(x, (1, 2, 0))  # [H, W, C]
-            return x
-
-        # [slice, H, W, coil]
-        if x.shape[-1] < 64 and x.shape[1] >= 128 and x.shape[2] >= 128:
-            x = x[SLICE_INDEX]
-            return x
-
-    if x.ndim == 3:
-        # [coil, H, W]
-        if x.shape[0] < 64 and x.shape[1] >= 128 and x.shape[2] >= 128:
-            return np.transpose(x, (1, 2, 0))
-
-        # [H, W, coil]
-        if x.shape[-1] < 64 and x.shape[0] >= 128 and x.shape[1] >= 128:
-            return x
-
-    raise RuntimeError(f"Unknown kspace/map layout: shape={x.shape}")
-
-
-def make_cartesian_mask(shape_hw, acc=4, acs=24):
-    """
-    Simple equispaced Cartesian mask.
-    shape_hw = (H, W)
-    Mask samples full ACS center columns and every acc-th outer column.
-    """
-    H, W = shape_hw
-    mask = np.zeros((H, W), dtype=np.float32)
-
-    center = W // 2
-    lo = center - acs // 2
-    hi = lo + acs
-    mask[:, lo:hi] = 1.0
-
-    # Outer equispaced samples
-    mask[:, ::acc] = 1.0
-
-    # Ensure ACS remains fully sampled
-    mask[:, lo:hi] = 1.0
-
+def build_cartesian_mask(width: int, acc: int, acs: int) -> np.ndarray:
+    mask = np.zeros((width,), dtype=np.float32)
+    mask[::acc] = 1.0
+    c0 = max(0, (width - acs) // 2)
+    c1 = min(width, c0 + acs)
+    mask[c0:c1] = 1.0
     return mask
 
 
+def center_crop_hw(x: np.ndarray, crop_size: int) -> np.ndarray:
+    h, w = x.shape[:2]
+    if crop_size <= 0:
+        return x
+    if crop_size > h or crop_size > w:
+        raise ValueError(f'crop_size={crop_size} exceeds input spatial shape {(h, w)}')
+    hs = (h - crop_size) // 2
+    ws = (w - crop_size) // 2
+    if x.ndim == 3:
+        return x[hs:hs + crop_size, ws:ws + crop_size, :]
+    return x[hs:hs + crop_size, ws:ws + crop_size]
+
+
 def main():
-    k_files = sorted(glob.glob(os.path.join(KSPACE_DIR, "*.h5")))
-    m_files = sorted(glob.glob(os.path.join(MAPS_DIR, "*.h5")))
+    parser = argparse.ArgumentParser(description='Convert one HFS/fastMRI knee slice into ZS-SSL data.mat format')
+    parser.add_argument('--kspace_dir', type=str, default='/mnt/SSD/wsy/fastmri_data/knee/multicoil_test/kspace')
+    parser.add_argument('--maps_dir', type=str, default='/mnt/SSD/wsy/fastmri_data/knee/multicoil_test/maps')
+    parser.add_argument('--volume_index', type=int, default=0)
+    parser.add_argument('--slice_index', type=int, default=10)
+    parser.add_argument('--acc', type=int, default=4)
+    parser.add_argument('--acs', type=int, default=24)
+    parser.add_argument('--crop_size', type=int, default=320)
+    parser.add_argument('--out', type=str, default='/mnt/SSD/wsy/projects/SSDU-main/data_hfs_knee_slice_crop320.mat')
+    args = parser.parse_args()
 
-    print("num kspace files:", len(k_files))
-    print("num map files:", len(m_files))
+    k_files = sorted(Path(args.kspace_dir).glob('*.h5'))
+    m_files = sorted(Path(args.maps_dir).glob('*.h5'))
+    print(f'[INFO] kspace file count: {len(k_files)}')
+    print(f'[INFO] maps file count:   {len(m_files)}')
+    if len(k_files) == 0 or len(m_files) == 0:
+        raise FileNotFoundError('No .h5 files found in kspace_dir or maps_dir.')
+    if args.volume_index < 0 or args.volume_index >= len(k_files) or args.volume_index >= len(m_files):
+        raise IndexError('volume_index out of range for file lists.')
 
-    if not k_files:
-        raise RuntimeError(f"No h5 files found in {KSPACE_DIR}")
-    if not m_files:
-        raise RuntimeError(f"No h5 files found in {MAPS_DIR}")
+    k_path = k_files[args.volume_index]
+    m_path = m_files[args.volume_index]
+    print(f'[INFO] selected kspace file: {k_path}')
+    print(f'[INFO] selected maps file:   {m_path}')
 
-    k_path = k_files[VOLUME_INDEX]
-    m_path = m_files[VOLUME_INDEX]
+    with h5py.File(k_path, 'r') as fk, h5py.File(m_path, 'r') as fm:
+        k_key = next(iter(fk.keys()))
+        m_key = next(iter(fm.keys()))
+        print(f'[INFO] raw kspace dataset key={k_key}, shape={fk[k_key].shape}, dtype={fk[k_key].dtype}')
+        print(f'[INFO] raw maps dataset key={m_key}, shape={fm[m_key].shape}, dtype={fm[m_key].dtype}')
 
-    print("kspace file:", k_path)
-    print("maps file:", m_path)
+        if args.slice_index < 0 or args.slice_index >= fk[k_key].shape[0] or args.slice_index >= fm[m_key].shape[0]:
+            raise IndexError('slice_index out of range for selected volume.')
 
-    k_keys = list_h5_keys(k_path)
-    m_keys = list_h5_keys(m_path)
+        k_slice = fk[k_key][args.slice_index]
+        m_slice = fm[m_key][args.slice_index]
 
-    print("kspace keys:", k_keys)
-    print("maps keys:", m_keys)
+    print(f'[INFO] selected kspace slice shape={k_slice.shape}, dtype={k_slice.dtype}')
+    print(f'[INFO] selected maps slice shape={m_slice.shape}, dtype={m_slice.dtype}')
 
-    k_key = pick_key(k_keys, ["kspace", "k"])
-    m_key = pick_key(m_keys, ["maps", "sens", "csm", "s_maps", "sensitivity"])
+    # [coil, H, W] -> [H, W, coil]
+    if k_slice.ndim != 3 or m_slice.ndim != 3:
+        raise ValueError('Expected selected slice to be 3D [coil, H, W].')
+    kspace = np.transpose(k_slice, (1, 2, 0)).astype(np.complex64)
+    sens_maps = np.transpose(m_slice, (1, 2, 0)).astype(np.complex64)
 
-    print("selected kspace key:", k_key)
-    print("selected maps key:", m_key)
+    h, w, _ = kspace.shape
+    mask_1d = build_cartesian_mask(w, args.acc, args.acs)
+    mask = np.tile(mask_1d[np.newaxis, :], (h, 1)).astype(np.float32)
 
-    with h5py.File(k_path, "r") as fk:
-        k_raw = fk[k_key][()]
-    with h5py.File(m_path, "r") as fm:
-        m_raw = fm[m_key][()]
+    if args.crop_size > 0:
+        kspace = center_crop_hw(kspace, args.crop_size)
+        sens_maps = center_crop_hw(sens_maps, args.crop_size)
+        mask = center_crop_hw(mask, args.crop_size)
 
-    print("raw kspace shape/dtype:", k_raw.shape, k_raw.dtype)
-    print("raw maps shape/dtype:", m_raw.shape, m_raw.dtype)
+    print(f'[INFO] converted kspace shape={kspace.shape}, dtype={kspace.dtype}')
+    print(f'[INFO] converted sens_maps shape={sens_maps.shape}, dtype={sens_maps.dtype}')
+    print(f'[INFO] converted mask shape={mask.shape}, dtype={mask.dtype}')
+    print(f'[INFO] |kspace| max={np.abs(kspace).max():.6g}, mean={np.abs(kspace).mean():.6g}')
+    print(f'[INFO] |sens_maps| max={np.abs(sens_maps).max():.6g}, mean={np.abs(sens_maps).mean():.6g}')
+    print(f'[INFO] mask sampled ratio={mask.mean():.6f}')
 
-    k_raw = to_complex(k_raw)
-    m_raw = to_complex(m_raw)
-
-    kspace = infer_slice_coil_hw_to_hwcoil(k_raw)
-    sens_maps = infer_slice_coil_hw_to_hwcoil(m_raw)
-
-    if kspace.shape != sens_maps.shape:
-        raise RuntimeError(f"kspace and sens_maps shape mismatch: {kspace.shape} vs {sens_maps.shape}")
-
-    H, W, C = kspace.shape
-    mask = make_cartesian_mask((H, W), acc=ACC, acs=ACS)
-
-    print("converted kspace:", kspace.shape, kspace.dtype, "abs max/mean:", np.abs(kspace).max(), np.abs(kspace).mean())
-    print("converted sens_maps:", sens_maps.shape, sens_maps.dtype, "abs max/mean:", np.abs(sens_maps).max(), np.abs(sens_maps).mean())
-    print("mask:", mask.shape, mask.dtype, "sampled ratio:", mask.mean())
-
-    os.makedirs(os.path.dirname(OUT_MAT), exist_ok=True)
-    sio.savemat(
-        OUT_MAT,
-        {
-            "kspace": kspace.astype(np.complex64),
-            "sens_maps": sens_maps.astype(np.complex64),
-            "mask": mask.astype(np.float32),
-        },
-    )
-
-    print("saved:", OUT_MAT)
+    out_path = Path(args.out)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sio.savemat(str(out_path), {'kspace': kspace, 'sens_maps': sens_maps, 'mask': mask})
+    print(f'[INFO] output path: {out_path}')
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
