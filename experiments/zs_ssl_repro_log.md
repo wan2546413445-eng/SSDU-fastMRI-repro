@@ -109,3 +109,24 @@
 - Status:
   - Single-slice sanity metric passed.
   - Next: run a 3-slice check on volume 0, slices 8/10/12.
+
+## 2026-05-05 Single-slice sanity metrics
+
+- Data: file1000015.h5, slice_index = 10, crop320
+- Output: outputs/zs_ssl_hfs_knee_slice10_50ep/recon_outputs.mat
+- Metrics after [0,1] normalization against reference image:
+  - ZF:
+    - PSNR = 26.6582
+    - SSIM = 0.8200
+    - NMSE = 0.128455
+  - ZS-SSL Recon:
+    - PSNR = 28.5832
+    - SSIM = 0.8374
+    - NMSE = 0.082461
+- Improvement:
+  - PSNR +1.9250 dB
+  - SSIM +0.0174
+  - NMSE reduced by about 35.81%
+- Status:
+  - Single-slice sanity metric passed.
+  - Next: run a 3-slice check on volume 0, slices 8/10/12.
