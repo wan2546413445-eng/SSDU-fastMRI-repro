@@ -13,7 +13,7 @@ def uniform_selection(input_data, input_mask, rho=0.2, small_acs_block=(4, 4)):
 
     pr = np.ndarray.flatten(temp_mask)
     ind = np.random.choice(np.arange(nrow * ncol),
-                            size=np.int(np.count_nonzero(pr) * rho), replace=False, p=pr / np.sum(pr))
+                            size=int(np.count_nonzero(pr) * rho), replace=False, p=pr / np.sum(pr))
 
     [ind_x, ind_y] = index_flatten2nd(ind, (nrow, ncol))
 
