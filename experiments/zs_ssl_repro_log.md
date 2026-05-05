@@ -130,3 +130,49 @@
 - Status:
   - Single-slice sanity metric passed.
   - Next: run a 3-slice check on volume 0, slices 8/10/12.
+
+## 2026-05-05 Three-slice ZS-SSL check on volume 0
+
+- Data:
+  - volume_index = 0
+  - file = file1000015.h5
+  - slices = 8, 10, 12
+  - crop = 320 x 320
+- Training configuration:
+  - epochs = 50
+  - stop_training = 10
+  - num_reps = 2
+  - batch_size = 1
+  - nb_unroll_blocks = 2
+  - nb_res_blocks = 2
+  - CG_Iter = 2
+
+### Metrics
+
+| Slice | ZF PSNR | Recon PSNR | ΔPSNR | ZF SSIM | Recon SSIM | ΔSSIM | ZF NMSE | Recon NMSE |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 8  | 28.8532 | 30.3260 | +1.4728 | 0.8079 | 0.8169 | +0.0090 | 0.067047 | 0.047764 |
+| 10 | 26.6582 | 28.7348 | +2.0766 | 0.8200 | 0.8285 | +0.0085 | 0.128455 | 0.079633 |
+| 12 | 25.1992 | 27.0002 | +1.8010 | 0.8003 | 0.7821 | -0.0182 | 0.162680 | 0.107458 |
+
+### Summary
+
+- Average ZF:
+  - PSNR = 26.9035
+  - SSIM = 0.8094
+  - NMSE = 0.119394
+- Average ZS-SSL Recon:
+  - PSNR = 28.6870
+  - SSIM = 0.8092
+  - NMSE = 0.078285
+- Average improvement:
+  - PSNR +1.7835 dB
+  - NMSE reduced by about 34.43%
+  - SSIM approximately unchanged overall; slice 12 shows SSIM degradation.
+
+### Status
+
+- Three-slice sanity check passed.
+- ZS-SSL improves PSNR and NMSE consistently across slices 8/10/12.
+- SSIM is not yet stable under the current low-capacity setting.
+- Next step: add a batch evaluation/summarization script before expanding to more slices or stronger model settings.
