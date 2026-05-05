@@ -24,6 +24,7 @@ def build_args():
 
     # Required sanity defaults while keeping existing parser fields.
     args.data_dir = args.data_path
+    args.data_opt = 'HFS_KNEE'
     args.batchSize = args.batch_size
     args.CG_Iter = args.cg_iter
     if args.epochs == parser.get_default('epochs'):
