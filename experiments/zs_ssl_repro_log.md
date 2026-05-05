@@ -41,3 +41,29 @@
 - Status:
   - Command-line ZS-SSL sanity baseline passed.
   - Next step: improve converter to generate crop320 directly and then run longer single-slice training.
+
+## 2026-05-05 Converter v2 and command-line sanity v2 passed
+
+- Converter:
+  - script: scripts/convert_hfs_knee_slice_to_zs_ssl_mat.py
+  - fixed dataset key selection
+  - selected kspace key: kspace
+  - selected maps key: s_maps
+  - reads only one slice instead of full-volume workflow
+  - directly outputs crop320 .mat
+- Input:
+  - file: file1000015.h5
+  - slice_index = 10
+  - original shape = 640 x 372 x 15
+  - crop shape = 320 x 320 x 15
+  - mask sampled ratio after crop = 0.306250
+- Training script:
+  - script: scripts/train_zs_ssl_hfs_knee.py
+  - fixed data_opt = HFS_KNEE to avoid Coronal_PD hard-coded padding
+- Sanity v2 result:
+  - Epoch 1: train = 0.907719, val = 0.816307
+  - Epoch 2: train = 0.899425, val = 0.805408
+  - Epoch 3: train = 0.891770, val = 0.801463
+  - Training finished successfully in 2.0s
+- Status:
+  - Stable command-line ZS-SSL single-slice baseline passed.
