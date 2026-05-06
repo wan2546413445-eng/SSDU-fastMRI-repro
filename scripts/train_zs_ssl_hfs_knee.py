@@ -76,7 +76,15 @@ def main():
         nw_input_trn[jj, ...] = utils.sense1(sub_kspace, sens_maps)
 
     np.savez(os.path.join(args.output_dir, 'zs_ssl_masks.npz'),
-             trn_mask=trn_mask, loss_mask=loss_mask, cv_trn_mask=cv_trn_mask, cv_val_mask=cv_val_mask)
+             trn_mask=trn_mask,
+             loss_mask=loss_mask,
+             cv_trn_mask=cv_trn_mask,
+             cv_val_mask=cv_val_mask,
+             original_mask=original_mask,
+             seed=np.array(args.seed),
+             rho_val=np.array(args.rho_val),
+             rho_train=np.array(args.rho_train),
+             acs_block=np.array(args.acs_block),)
 
     if args.data_opt == 'Coronal_PD':
         trn_mask[:, :, 0:17] = np.ones((args.num_reps, args.nrow_GLOB, 17))
@@ -112,6 +120,13 @@ def main():
             val_loss_tracker = 0
         else:
             val_loss_tracker += 1
+
+        print(
+            f"Epoch {ep + 1:03d}/{args.epochs} | "
+            f"train={trn_loss:.6f} | val={val_loss:.6f} | "
+            f"best={valid_loss_min:.6f} | patience={val_loss_tracker}/{args.stop_training}")
+
+
         ep += 1
 
     test_mask = np.complex64(original_mask)
@@ -121,7 +136,7 @@ def main():
     test_loader = DataLoader(Dataset_Inference(utils.complex2real(nw_input_inference[np.newaxis]), test_mask[np.newaxis], test_mask[np.newaxis], sens_maps[0][np.newaxis]),
                              batch_size=args.batchSize, shuffle=False, num_workers=0)
 
-    best_checkpoint = torch.load(os.path.join(args.output_dir, 'best.pth'), map_location=device)
+    best_checkpoint = torch.load(os.path.join(args.output_dir, 'best.pth'), map_location=device,weights_only=False,)
     model.load_state_dict(best_checkpoint['model_state'])
     zs_ssl_recon = utils.real2complex(test(test_loader, model, device).to('cpu').numpy())
 

@@ -27,6 +27,51 @@ def center_crop_hw(x: np.ndarray, crop_size: int) -> np.ndarray:
         return x[hs:hs + crop_size, ws:ws + crop_size, :]
     return x[hs:hs + crop_size, ws:ws + crop_size]
 
+def pick_dataset_key(h5_file, exact_names, fallback_contains=None):
+    keys = list(h5_file.keys())
+    fallback_contains = fallback_contains or []
+
+    for name in exact_names:
+        if name in keys:
+            return name
+
+    for token in fallback_contains:
+        for key in keys:
+            obj = h5_file[key]
+            if token.lower() in key.lower() and hasattr(obj, "shape") and len(obj.shape) >= 3:
+                return key
+
+    raise RuntimeError(f"Cannot infer dataset key from keys={keys}")
+
+def to_complex(arr):
+    arr = np.asarray(arr)
+
+    if np.iscomplexobj(arr):
+        return arr.astype(np.complex64)
+
+    if arr.ndim >= 1 and arr.shape[-1] == 2:
+        return (arr[..., 0] + 1j * arr[..., 1]).astype(np.complex64)
+
+    if arr.ndim >= 1 and arr.shape[0] == 2:
+        return (arr[0] + 1j * arr[1]).astype(np.complex64)
+
+    raise RuntimeError(f"Cannot convert to complex: shape={arr.shape}, dtype={arr.dtype}")
+
+
+def one_slice_to_hwcoil(x):
+    x = np.squeeze(np.asarray(x))
+
+    if x.ndim != 3:
+        raise RuntimeError(f"Expected 3D slice after squeeze, got shape={x.shape}")
+
+    if x.shape[0] < 64 and x.shape[1] >= 128 and x.shape[2] >= 128:
+        return np.transpose(x, (1, 2, 0))
+
+    if x.shape[-1] < 64 and x.shape[0] >= 128 and x.shape[1] >= 128:
+        return x
+
+    raise RuntimeError(f"Unknown slice layout: shape={x.shape}")
+
 
 def main():
     parser = argparse.ArgumentParser(description='Convert one HFS/fastMRI knee slice into ZS-SSL data.mat format')
@@ -53,8 +98,8 @@ def main():
     print(f'[INFO] selected maps file:   {m_path}')
 
     with h5py.File(k_path, 'r') as fk, h5py.File(m_path, 'r') as fm:
-        k_key = next(iter(fk.keys()))
-        m_key = next(iter(fm.keys()))
+        k_key = pick_dataset_key(fk, exact_names=["kspace"], fallback_contains=["kspace"])
+        m_key = pick_dataset_key(fm, exact_names=["s_maps", "maps"], fallback_contains=["sens", "map", "csm"])
         print(f'[INFO] raw kspace dataset key={k_key}, shape={fk[k_key].shape}, dtype={fk[k_key].dtype}')
         print(f'[INFO] raw maps dataset key={m_key}, shape={fm[m_key].shape}, dtype={fm[m_key].dtype}')
         k_slice = fk[k_key][args.slice_index]
@@ -63,8 +108,8 @@ def main():
     print(f'[INFO] selected kspace slice shape={k_slice.shape}, dtype={k_slice.dtype}')
     print(f'[INFO] selected maps slice shape={m_slice.shape}, dtype={m_slice.dtype}')
 
-    kspace = np.transpose(k_slice, (1, 2, 0)).astype(np.complex64)
-    sens_maps = np.transpose(m_slice, (1, 2, 0)).astype(np.complex64)
+    kspace = one_slice_to_hwcoil(to_complex(k_slice))
+    sens_maps = one_slice_to_hwcoil(to_complex(m_slice))
 
     if args.crop_size > 0:
         kspace = center_crop_hw(kspace, args.crop_size)
